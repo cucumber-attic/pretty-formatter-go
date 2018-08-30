@@ -11,6 +11,7 @@ import (
 	gio "github.com/gogo/protobuf/io"
 	"io"
 	"io/ioutil"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,7 +23,7 @@ func ProcessMessages(stdin io.Reader, writer io.Writer, resultsMode bool) {
 	stepPrinters := make(map[string]*StepPrinter)
 	picklePrinters := make(map[string]*PicklePrinter)
 
-	r := gio.NewDelimitedReader(stdin, 4096)
+	r := gio.NewDelimitedReader(stdin, math.MaxInt32)
 	for {
 		wrapper := &messages.Wrapper{}
 		err := r.ReadMsg(wrapper)
@@ -48,8 +49,7 @@ func ProcessMessages(stdin io.Reader, writer io.Writer, resultsMode bool) {
 
 			dp.processGherkinDocument()
 		case *messages.Wrapper_Pickle:
-			pickleId := makePickleId(t.Pickle.Uri, t.Pickle.Locations)
-			picklePrinters[pickleId] = &PicklePrinter{
+			picklePrinters[t.Pickle.Id] = &PicklePrinter{
 				Pickle:           t.Pickle,
 				Writer:           writer,
 				StepPrinters:     stepPrinters,
@@ -64,20 +64,6 @@ func ProcessMessages(stdin io.Reader, writer io.Writer, resultsMode bool) {
 		}
 
 	}
-}
-
-func makePickleId(uri string, locations []*messages.Location) string {
-	lines := collect(locations, func(loc *messages.Location) string { return fmt.Sprint(loc.Line) })
-	return fmt.Sprintf("%s:%s", uri, strings.Join(lines, ":"))
-}
-
-// TODO: Move to Gherkin
-func collect(locations []*messages.Location, f func(loc *messages.Location) string) []string {
-	result := make([]string, len(locations))
-	for i, item := range locations {
-		result[i] = f(item)
-	}
-	return result
 }
 
 type DocumentPrinter struct {
@@ -108,7 +94,7 @@ func (pp *PicklePrinter) printTestStepFinished(stepIndex uint32, status *message
 	stepKey := uriLineKey(pp.Pickle.Uri, pickleStep.Locations[0])
 
 	stepPrinter := pp.StepPrinters[stepKey]
-	stepPrinter.processStepWithStatus(pp.Writer, 2, status)
+	stepPrinter.processStepWithStatus(pp.Writer, 2, status, pickleStep.Text)
 }
 
 type ScenarioPrinter struct {
@@ -266,13 +252,13 @@ func (sp *StepPrinter) processStep(depth int) {
 	}
 }
 
-func (sp *StepPrinter) processStepWithStatus(writer io.Writer, depth int, status *messages.Status) {
+func (sp *StepPrinter) processStepWithStatus(writer io.Writer, depth int, status *messages.Status, text string) {
 	prefix := resultPrefix(*status)
 	indentCount := (depth * 2) - utf8.RuneCountInString(prefix)
 	indent := strings.Repeat(" ", indentCount)
 
 	fmt.Fprintf(writer, indent)
-	fmt.Fprintf(writer, "%s%s%s\n", prefix, sp.Step.GetKeyword(), sp.Step.GetText())
+	fmt.Fprintf(writer, "%s%s%s\n", prefix, sp.Step.GetKeyword(), text)
 }
 
 func resultPrefix(status messages.Status) string {

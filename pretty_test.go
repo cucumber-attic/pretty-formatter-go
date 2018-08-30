@@ -16,7 +16,7 @@ Feature: Hello
 `
 
 	stdout := &bytes.Buffer{}
-	ProcessMessages(messageReader(t, src), stdout, false)
+	ProcessMessages(messageReader(t, src, false), stdout, false)
 
 	require.EqualValues(t,
 		src,
@@ -32,7 +32,7 @@ Feature: Hello
 `
 
 	stdout := &bytes.Buffer{}
-	ProcessMessages(messageReader(t, src), stdout, false)
+	ProcessMessages(messageReader(t, src, false), stdout, false)
 
 	require.EqualValues(t,
 		src,
@@ -84,7 +84,7 @@ Feature: A
 `
 
 	stdout := &bytes.Buffer{}
-	ProcessMessages(messageReader(t, src), stdout, false)
+	ProcessMessages(messageReader(t, src, false), stdout, false)
 
 	require.EqualValues(t,
 		src,
@@ -95,26 +95,20 @@ func TestPrintsInResultsMode(t *testing.T) {
 	src := `Feature: A
 
   Scenario: B
-    Given C
-    When D
-    Then E
+    Given passed
+    When failed
+    Then skipped
 `
 
 	// TODO: Add ANSI codes for cursor up (after printing TestCaseStarted)
 	out := `Scenario: B
-  ✓ Given C
-  ✗ When D
-    Then E
+  ✓ Given passed
+  ✗ When failed
+    Then skipped
 `
 
 	stdout := &bytes.Buffer{}
-	prettyStdin := messageReader(t, src)
-	prettyStdinWriter := gio.NewDelimitedWriter(prettyStdin)
-	prettyStdinWriter.WriteMsg(newTestCaseStarted("features/test.feature:3"))
-	prettyStdinWriter.WriteMsg(newTestStepFinished(messages.Status_PASSED, "features/test.feature:3", 0))
-	prettyStdinWriter.WriteMsg(newTestStepFinished(messages.Status_FAILED, "features/test.feature:3", 1))
-	prettyStdinWriter.WriteMsg(newTestStepFinished(messages.Status_UNDEFINED, "features/test.feature:3", 2))
-
+	prettyStdin := messageReader(t, src, true)
 	ProcessMessages(prettyStdin, stdout, true)
 
 	require.EqualValues(t,
@@ -122,82 +116,40 @@ func TestPrintsInResultsMode(t *testing.T) {
 		stdout.String())
 }
 
-// TODO: Test that scenario doesn't get printed until the test case has started
-
-func TestDoesNotPrintUnstartedTestCase(t *testing.T) {
-	src := `Feature: A
-
-  Scenario: B
-    Given C
-    When D
-    Then E
-`
-
-	// TODO: Add ANSI codes for cursor up (after printing TestCaseStarted)
-	out := ``
-
-	stdout := &bytes.Buffer{}
-	prettyStdin := messageReader(t, src)
-
-	ProcessMessages(prettyStdin, stdout, true)
-
-	require.EqualValues(t,
-		out,
-		stdout.String())
-}
-
-func messageReader(t *testing.T, src string) *bytes.Buffer {
-	source := &messages.Source{
-		Uri:  "features/test.feature",
-		Data: src,
-		Media: &messages.Media{
-			Encoding:    "UTF-8",
-			ContentType: "text/x.cucumber.gherkin+plain",
+func messageReader(t *testing.T, src string, fakeResults bool) *bytes.Buffer {
+	wrapper := &messages.Wrapper{
+		Message: &messages.Wrapper_Source{
+			Source: &messages.Source{
+				Uri:  "features/test.feature",
+				Data: src,
+				Media: &messages.Media{
+					Encoding:    "UTF-8",
+					ContentType: "text/x.cucumber.gherkin+plain",
+				},
+			},
 		},
 	}
-	sources := &bytes.Buffer{}
-	sourcesWriter := gio.NewDelimitedWriter(sources)
-	sourcesWriter.WriteMsg(source)
+
+	wrappers := &bytes.Buffer{}
+	messageWriter := gio.NewDelimitedWriter(wrappers)
+	messageWriter.WriteMsg(wrapper)
 
 	prettyStdin := &bytes.Buffer{}
-	wrappers, err := gherkin.Messages(
+	_, err := gherkin.Messages(
 		nil,
-		sources,
+		wrappers,
 		"en",
 		true,
 		true,
 		true,
 		prettyStdin,
 		false,
+		fakeResults,
 	)
 	require.NoError(t, err)
-	prettyStdinWriter := gio.NewDelimitedWriter(prettyStdin)
-	for _, wrapper := range wrappers {
-		prettyStdinWriter.WriteMsg(&wrapper)
-	}
+	//prettyStdinWriter := gio.NewDelimitedWriter(prettyStdin)
+	//for _, wrapper := range wrappers {
+	//	prettyStdinWriter.WriteMsg(&wrapper)
+	//}
 	return prettyStdin
-}
-
-func newTestCaseStarted(pickleId string) *messages.Wrapper {
-	return &messages.Wrapper{
-		Message: &messages.Wrapper_TestCaseStarted{
-			TestCaseStarted: &messages.TestCaseStarted{
-				PickleId: pickleId,
-			},
-		},
-	}
-}
-
-func newTestStepFinished(status messages.Status, pickleId string, index uint32) *messages.Wrapper {
-	return &messages.Wrapper{
-		Message: &messages.Wrapper_TestStepFinished{
-			TestStepFinished: &messages.TestStepFinished{
-				PickleId: pickleId,
-				TestResult: &messages.TestResult{
-					Status: status,
-				},
-				Index: index,
-			},
-		},
-	}
 }

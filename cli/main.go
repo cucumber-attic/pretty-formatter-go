@@ -24,7 +24,7 @@ func main() {
 	} else {
 		// Pretty formatting mode.
 		buf := &bytes.Buffer{}
-		_, err := gherkin.GherkinMessages(
+		_, err := gherkin.Messages(
 			paths,
 			nil,
 			*dialectFlag,
@@ -32,6 +32,7 @@ func main() {
 			true,
 			true,
 			buf,
+			false,
 			false,
 		)
 		if err != nil {
